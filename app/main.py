@@ -31,7 +31,7 @@ def live_gold_price():
     price = get_current_gold_price()
     return {
         "gold_price_inr_per_gram": price,
-        "source": "Yahoo Finance (GC=F futures)",
+        "source": "gold-api.com (XAU Spot Price)",
         "currency": "INR"
     }
 

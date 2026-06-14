@@ -25,17 +25,15 @@ def get_live_usd_to_inr() -> float:
 
 def get_current_gold_price() -> float:
     """
-    Fetch live gold price in INR per gram using Yahoo Finance (no API key needed).
-    Gold futures ticker: GC=F (USD per troy ounce)
-    Converts: USD/oz → INR/gram
+    Fetch live gold price in INR per gram using gold-api.com (no API key needed).
+    Returns gold price in USD per troy ounce, which is converted to INR per gram.
     Falls back to ₹9800/gram if any error occurs.
     """
     try:
-        import yfinance as yf
-        ticker = yf.Ticker("GC=F")
-        hist = ticker.history(period="1d")
-        if not hist.empty:
-            gold_usd_per_oz = float(hist["Close"].iloc[-1])
+        response = requests.get("https://api.gold-api.com/price/XAU", timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            gold_usd_per_oz = float(data["price"])
             usd_to_inr = get_live_usd_to_inr()
             gold_inr_per_gram = (gold_usd_per_oz / TROY_OUNCE_TO_GRAM) * usd_to_inr
             price = round(gold_inr_per_gram, 2)
