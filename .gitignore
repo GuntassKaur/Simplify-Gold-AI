@@ -1,0 +1,40 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pyc
+.Python
+*.egg-info/
+dist/
+build/
+
+# Environment / Secrets (NEVER commit API keys!)
+.env
+.env.local
+.env.production
+
+# Database
+*.db
+*.sqlite
+sql_app.db
+
+# Node / React
+frontend/node_modules/
+frontend/.cache/
+frontend/dist/
+
+# OS Files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Test files
+test_key.py
+test_app_gemini.py
+test_db_api.py
+test_gemini.py

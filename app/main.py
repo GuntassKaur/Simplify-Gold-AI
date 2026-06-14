@@ -1,0 +1,39 @@
+from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+from .database import engine, Base
+from .routes import users, chat, purchase, transactions
+import os
+
+# Create database tables
+Base.metadata.create_all(bind=engine)
+
+app = FastAPI(
+    title="Simplify Gold AI API",
+    description="AI-powered Digital Gold Assistant built with FastAPI, Gemini AI, SQLAlchemy and SQLite.",
+    version="1.0.0"
+)
+
+# Include Routers
+app.include_router(users.router, prefix="/api", tags=["Users"])
+app.include_router(chat.router, prefix="/api", tags=["Chat"])
+app.include_router(purchase.router, prefix="/api", tags=["Purchase"])
+app.include_router(transactions.router, prefix="/api", tags=["Transactions"])
+
+@app.get("/health", tags=["Health"])
+def health_check():
+    return {"status": "ok", "message": "Service is healthy"}
+
+# Mount the static files directory
+static_dir = os.path.join(os.path.dirname(__file__), "..", "static")
+if not os.path.exists(static_dir):
+    os.makedirs(static_dir)
+
+app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+@app.get("/", tags=["Frontend"])
+async def serve_frontend():
+    index_path = os.path.join(static_dir, "index.html")
+    if os.path.exists(index_path):
+        return FileResponse(index_path)
+    return {"message": "Frontend not found."}
