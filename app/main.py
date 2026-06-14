@@ -3,6 +3,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from .database import engine, Base
 from .routes import users, chat, purchase, transactions
+from .utils.helpers import get_current_gold_price
 import os
 
 # Create database tables
@@ -23,6 +24,16 @@ app.include_router(transactions.router, prefix="/api", tags=["Transactions"])
 @app.get("/health", tags=["Health"])
 def health_check():
     return {"status": "ok", "message": "Service is healthy"}
+
+@app.get("/api/gold-price", tags=["Gold Price"])
+def live_gold_price():
+    """Returns the current live gold price in INR per gram fetched from Yahoo Finance."""
+    price = get_current_gold_price()
+    return {
+        "gold_price_inr_per_gram": price,
+        "source": "Yahoo Finance (GC=F futures)",
+        "currency": "INR"
+    }
 
 # Mount the static files directory
 static_dir = os.path.join(os.path.dirname(__file__), "..", "static")
