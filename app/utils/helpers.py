@@ -1,48 +1,4 @@
-import requests
-import logging
-
-logger = logging.getLogger(__name__)
-
-# Constants
-TROY_OUNCE_TO_GRAM = 31.1035
-FALLBACK_GOLD_PRICE_INR = 9800.0  # fallback ₹ per gram
-
-
-def get_live_usd_to_inr() -> float:
-    """Fetch live USD to INR conversion rate from a free public API."""
-    try:
-        response = requests.get(
-            "https://open.er-api.com/v6/latest/USD",
-            timeout=5
-        )
-        data = response.json()
-        if data.get("result") == "success":
-            return float(data["rates"]["INR"])
-    except Exception as e:
-        logger.warning(f"USD/INR fetch failed: {e}")
-    return 83.5  # fallback rate
-
-
-def get_current_gold_price() -> float:
-    """
-    Fetch live gold price in INR per gram using gold-api.com (no API key needed).
-    Returns gold price in USD per troy ounce, which is converted to INR per gram.
-    Falls back to ₹9800/gram if any error occurs.
-    """
-    try:
-        response = requests.get("https://api.gold-api.com/price/XAU", timeout=5)
-        if response.status_code == 200:
-            data = response.json()
-            gold_usd_per_oz = float(data["price"])
-            usd_to_inr = get_live_usd_to_inr()
-            gold_inr_per_gram = (gold_usd_per_oz / TROY_OUNCE_TO_GRAM) * usd_to_inr
-            price = round(gold_inr_per_gram, 2)
-            logger.info(f"Live gold price fetched: ₹{price}/gram (${gold_usd_per_oz}/oz × {usd_to_inr} INR/USD)")
-            return price
-    except Exception as e:
-        logger.warning(f"Live gold price fetch failed, using fallback: {e}")
-    return FALLBACK_GOLD_PRICE_INR
-
+from ..services.gold_price_service import get_current_gold_price
 
 def calculate_gold_quantity(amount: float, gold_price: float) -> float:
     if gold_price <= 0:

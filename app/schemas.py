@@ -1,6 +1,6 @@
 from pydantic import BaseModel, EmailStr
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 
 # User Schemas
 class UserBase(BaseModel):
@@ -8,7 +8,23 @@ class UserBase(BaseModel):
     email: EmailStr
 
 class UserCreate(UserBase):
-    pass
+    password: Optional[str] = None  # Optional for backward compatibility with old POST /api/users
+
+class UserRegister(BaseModel):
+    name: str
+    email: EmailStr
+    password: str
+
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user_id: int
+    email: str
+    name: str
 
 class UserResponse(UserBase):
     id: int
@@ -51,3 +67,11 @@ class TransactionResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+# Portfolio Schemas
+class PortfolioResponse(BaseModel):
+    total_invested: float
+    total_gold_quantity: float
+    current_gold_price: float
+    portfolio_value: float
+    transactions: List[TransactionResponse]

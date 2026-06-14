@@ -57,9 +57,11 @@ export default function App() {
   const [showBuyModal, setShowBuyModal] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
 
-  // Form Inputs
+  // Auth Modal State (Registration / Login)
+  const [isLogin, setIsLogin] = useState(false);
   const [regName, setRegName] = useState('');
   const [regEmail, setRegEmail] = useState('');
+  const [regPassword, setRegPassword] = useState('');
   const [buyAmount, setBuyAmount] = useState('500');
 
   // Loading States
@@ -70,7 +72,22 @@ export default function App() {
   // Data States
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [latestTxn, setLatestTxn] = useState<any | null>(null);
-  const [goldPrice] = useState(9800); // Current gold price per gram
+  const [goldPrice, setGoldPrice] = useState(9800); // Current gold price per gram
+
+  // Fetch Gold Price from backend
+  const fetchGoldPrice = async () => {
+    try {
+      const res = await fetch('/api/gold-price');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.gold_price_inr_per_gram) {
+          setGoldPrice(data.gold_price_inr_per_gram);
+        }
+      }
+    } catch (err) {
+      console.error("Error fetching live gold price:", err);
+    }
+  };
 
   // Chat State
   const [chatInput, setChatInput] = useState('');
@@ -88,6 +105,13 @@ export default function App() {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatMessages, chatLoading]);
 
+  // Initial mount: fetch price & setup polling
+  useEffect(() => {
+    fetchGoldPrice();
+    const interval = setInterval(fetchGoldPrice, 30000); // Poll every 30 seconds
+    return () => clearInterval(interval);
+  }, []);
+
   // Fetch Transactions when User is available
   useEffect(() => {
     if (user) {
@@ -97,7 +121,12 @@ export default function App() {
 
   const fetchTransactions = async (userId: number) => {
     try {
-      const res = await fetch(`/api/transactions/${userId}`);
+      const token = localStorage.getItem('simplify_token');
+      const res = await fetch(`/api/transactions/${userId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
       if (res.ok) {
         const data = await res.json();
         setTransactions(data);
@@ -110,24 +139,35 @@ export default function App() {
   // Handlers
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!regName.trim() || !regEmail.trim()) return;
+    if (!regEmail.trim() || !regPassword.trim()) return;
+    if (!isLogin && !regName.trim()) return;
 
     setRegLoading(true);
     try {
-      const res = await fetch('/api/users', {
+      const url = isLogin ? '/api/auth/login' : '/api/auth/register';
+      const bodyObj = isLogin
+        ? { email: regEmail, password: regPassword }
+        : { name: regName, email: regEmail, password: regPassword };
+
+      const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: regName, email: regEmail })
+        body: JSON.stringify(bodyObj)
       });
       const data = await res.json();
-      if (res.ok && data.id) {
-        const profile: UserProfile = { id: data.id, name: data.name, email: data.email };
+      if (res.ok && data.access_token) {
+        const profile: UserProfile = { id: data.user_id, name: data.name, email: data.email };
         setUser(profile);
         localStorage.setItem('simplify_user', JSON.stringify(profile));
+        localStorage.setItem('simplify_token', data.access_token);
         setShowRegModal(false);
+        // Reset fields
+        setRegName('');
+        setRegEmail('');
+        setRegPassword('');
         setActiveTab('dashboard');
       } else {
-        alert(data.detail || "Failed to create profile. Email might be already registered.");
+        alert(data.detail || "Authentication failed. Please check your inputs.");
       }
     } catch (err) {
       alert("Error connecting to server.");
@@ -138,6 +178,7 @@ export default function App() {
 
   const handleLogout = () => {
     localStorage.removeItem('simplify_user');
+    localStorage.removeItem('simplify_token');
     setUser(null);
     setTransactions([]);
     setActiveTab('home');
@@ -203,20 +244,24 @@ export default function App() {
 
     setBuyLoading(true);
     try {
+      const token = localStorage.getItem('simplify_token');
       const res = await fetch('/api/purchase', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({ user_id: user.id, amount: amountVal })
       });
       const data = await res.json();
 
-      if (data.status === 'SUCCESS') {
+      if (res.ok && data.status === 'SUCCESS') {
         setLatestTxn(data);
         setShowBuyModal(false);
         setShowSuccessModal(true);
         fetchTransactions(user.id);
       } else {
-        alert("Purchase failed. Please try again.");
+        alert(data.detail || "Purchase failed. Please try again.");
       }
     } catch (err) {
       alert("Error completing purchase.");
@@ -831,22 +876,24 @@ export default function App() {
               </button>
 
               <div className="flex flex-col gap-1.5">
-                <h3 className="text-xl font-bold">Create Your Profile</h3>
-                <p className="text-muted text-xs">Enter your details to initiate smart gold investing.</p>
+                <h3 className="text-xl font-bold">{isLogin ? "Sign In to Your Profile" : "Create Your Profile"}</h3>
+                <p className="text-muted text-xs">{isLogin ? "Enter your email and password to access your dashboard." : "Enter your details to initiate smart gold investing."}</p>
               </div>
 
               <form onSubmit={handleRegister} className="flex flex-col gap-4">
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-[10px] text-muted font-bold uppercase tracking-wider">Full Name</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. Guntass Kaur"
-                    value={regName}
-                    onChange={(e) => setRegName(e.target.value)}
-                    className="bg-white/5 border border-white/10 focus:border-accentGold/30 focus:outline-none rounded-xl py-3.5 px-4 text-xs text-white placeholder-gray-500"
-                  />
-                </div>
+                {!isLogin && (
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[10px] text-muted font-bold uppercase tracking-wider">Full Name</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Guntass Kaur"
+                      value={regName}
+                      onChange={(e) => setRegName(e.target.value)}
+                      className="bg-white/5 border border-white/10 focus:border-accentGold/30 focus:outline-none rounded-xl py-3.5 px-4 text-xs text-white placeholder-gray-500"
+                    />
+                  </div>
+                )}
                 <div className="flex flex-col gap-1.5">
                   <label className="text-[10px] text-muted font-bold uppercase tracking-wider">Email Address</label>
                   <input
@@ -858,6 +905,17 @@ export default function App() {
                     className="bg-white/5 border border-white/10 focus:border-accentGold/30 focus:outline-none rounded-xl py-3.5 px-4 text-xs text-white placeholder-gray-500"
                   />
                 </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[10px] text-muted font-bold uppercase tracking-wider">Password</label>
+                  <input
+                    type="password"
+                    required
+                    placeholder="Enter password"
+                    value={regPassword}
+                    onChange={(e) => setRegPassword(e.target.value)}
+                    className="bg-white/5 border border-white/10 focus:border-accentGold/30 focus:outline-none rounded-xl py-3.5 px-4 text-xs text-white placeholder-gray-500"
+                  />
+                </div>
 
                 <button
                   type="submit"
@@ -865,8 +923,25 @@ export default function App() {
                   className="bg-gradient-to-r from-accentGold to-accentLightGold text-primary font-bold py-3.5 rounded-xl transition-all shadow-lg shadow-accentGold/10 hover:shadow-accentGold/20 flex items-center justify-center gap-2 mt-2 disabled:opacity-50"
                 >
                   {regLoading && <Loader2 className="w-4 h-4 animate-spin" />}
-                  {regLoading ? "Creating Profile..." : "Start Investing"}
+                  {regLoading ? (isLogin ? "Signing In..." : "Creating Profile...") : (isLogin ? "Sign In" : "Start Investing")}
                 </button>
+
+                <div className="text-center text-xs text-muted mt-2">
+                  {isLogin ? "New to Simplify Gold? " : "Already have an account? "}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsLogin(!isLogin);
+                      // Clear fields when toggling
+                      setRegName('');
+                      setRegEmail('');
+                      setRegPassword('');
+                    }}
+                    className="text-accentGold hover:underline font-semibold"
+                  >
+                    {isLogin ? "Register here" : "Sign in here"}
+                  </button>
+                </div>
               </form>
             </motion.div>
           </div>

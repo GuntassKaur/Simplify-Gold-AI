@@ -1,21 +1,31 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from .. import schemas, models
 from ..database import get_db
 from ..services.gold_service import process_purchase
+from ..utils.auth import get_current_user
 
 router = APIRouter()
 
 @router.post("/purchase", response_model=schemas.PurchaseResponse)
-def purchase_gold(request: schemas.PurchaseRequest, db: Session = Depends(get_db)):
-    # Verify user exists
-    user = db.query(models.User).filter(models.User.id == request.user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+def purchase_gold(
+    request: schemas.PurchaseRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    # Enforce database integrity: only authenticated user can buy for themselves
+    if current_user.id != request.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: Cannot make purchases for another user"
+        )
         
     if request.amount <= 0:
-        raise HTTPException(status_code=400, detail="Amount must be greater than 0")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Amount must be greater than 0"
+        )
         
     # Process Purchase
     return process_purchase(request, db)

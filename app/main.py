@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from .database import engine, Base
-from .routes import users, chat, purchase, transactions
+from .routes import users, chat, purchase, transactions, auth, portfolio
 from .utils.helpers import get_current_gold_price
 import os
 
@@ -16,10 +16,12 @@ app = FastAPI(
 )
 
 # Include Routers
+app.include_router(auth.router, prefix="/api", tags=["Auth"])
 app.include_router(users.router, prefix="/api", tags=["Users"])
 app.include_router(chat.router, prefix="/api", tags=["Chat"])
 app.include_router(purchase.router, prefix="/api", tags=["Purchase"])
 app.include_router(transactions.router, prefix="/api", tags=["Transactions"])
+app.include_router(portfolio.router, prefix="/api", tags=["Portfolio"])
 
 @app.get("/health", tags=["Health"])
 def health_check():
