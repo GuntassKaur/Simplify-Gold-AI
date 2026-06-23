@@ -71,12 +71,13 @@ def process_chat_query(query: str) -> dict:
 
     if settings.GEMINI_API_KEY:
         try:
-            model = genai.GenerativeModel("gemini-2.5-flash")
+            model = genai.GenerativeModel("gemini-2.0-flash")
             response = model.generate_content(
                 user_prompt,
                 generation_config={
                     "response_mime_type": "application/json"
-                }
+                },
+                request_options={"timeout": 10.0}
             )
 
             text = response.text.strip()

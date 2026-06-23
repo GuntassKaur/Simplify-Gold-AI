@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from fastapi.middleware.cors import CORSMiddleware
 from .database import engine, Base
 from .routes import users, chat, purchase, transactions, auth, portfolio
 from .utils.helpers import get_current_gold_price
@@ -13,6 +14,15 @@ app = FastAPI(
     title="Simplify Gold AI API",
     description="AI-powered Digital Gold Assistant built with FastAPI, Gemini AI, SQLAlchemy and SQLite.",
     version="1.0.0"
+)
+
+# Enable CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Include Routers

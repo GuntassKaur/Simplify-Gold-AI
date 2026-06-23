@@ -223,6 +223,8 @@ export default function App() {
   const [showRegModal, setShowRegModal] = useState(false);
   const [showBuyModal, setShowBuyModal] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [isSellMode, setIsSellMode] = useState(false);
+  const [sellError, setSellError] = useState('');
 
   // Auth Modal State (Registration / Login)
   const [isLogin, setIsLogin] = useState(false);
@@ -376,11 +378,22 @@ export default function App() {
     setChatLoading(true);
 
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: user.id, query: userQuery })
+        body: JSON.stringify({ user_id: user.id, query: userQuery }),
+        signal: controller.signal
       });
+      clearTimeout(timeoutId);
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        setChatMessages(prev => [...prev, { sender: 'ai', text: errData.detail || "Something went wrong. Please try again." }]);
+        return;
+      }
+
       const data = await res.json();
 
       let answerText = data.answer;
@@ -400,8 +413,12 @@ export default function App() {
       if (data.action === 'purchase_offer') {
         setTimeout(() => { setShowBuyModal(true); }, 1200);
       }
-    } catch (err) {
-      setChatMessages(prev => [...prev, { sender: 'ai', text: "I'm having trouble connecting to the network right now. Please try again." }]);
+    } catch (err: any) {
+      if (err?.name === 'AbortError') {
+        setChatMessages(prev => [...prev, { sender: 'ai', text: "The request timed out. Please try again." }]);
+      } else {
+        setChatMessages(prev => [...prev, { sender: 'ai', text: "I'm having trouble connecting right now. Please try again." }]);
+      }
     } finally {
       setChatLoading(false);
     }
@@ -433,13 +450,48 @@ export default function App() {
       if (res.ok && data.status === 'SUCCESS') {
         setLatestTxn(data);
         setShowBuyModal(false);
-        await fetchTransactions(user.id); // refresh first, then show modal
+        await fetchTransactions(user.id);
         setShowSuccessModal(true);
       } else {
-        alert(data.detail || "Purchase failed. Please try again.");
+        setSellError(data.detail || "Purchase failed. Please try again.");
       }
     } catch (err) {
-      alert("Error completing purchase.");
+      setSellError("Network error. Please try again.");
+    } finally {
+      setBuyLoading(false);
+    }
+  };
+
+  const handleSell = async () => {
+    const amountVal = parseFloat(buyAmount);
+    if (!amountVal || amountVal <= 0) { setSellError('Enter a valid amount.'); return; }
+    if (!goldPrice || goldPrice <= 0) { setSellError('Gold price unavailable.'); return; }
+    const goldToSell = amountVal / goldPrice;
+    if (goldToSell > totalGoldOwned + 0.0001) {
+      setSellError(`Insufficient gold. You own ${totalGoldOwned.toFixed(4)}g (worth \u20b9${(totalGoldOwned * goldPrice).toLocaleString('en-IN', {maximumFractionDigits:0})}).`);
+      return;
+    }
+    if (!user) { setShowBuyModal(false); setShowRegModal(true); return; }
+    setBuyLoading(true);
+    setSellError('');
+    try {
+      const token = localStorage.getItem('simplify_token');
+      const res = await fetch('/api/sell', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ user_id: user.id, amount: amountVal })
+      });
+      const data = await res.json();
+      if (res.ok && data.status === 'SUCCESS') {
+        setLatestTxn({ ...data, isSell: true });
+        setShowBuyModal(false);
+        await fetchTransactions(user.id);
+        setShowSuccessModal(true);
+      } else {
+        setSellError(data.detail || 'Sell failed. Please try again.');
+      }
+    } catch (err) {
+      setSellError('Network error. Please try again.');
     } finally {
       setBuyLoading(false);
     }
@@ -1365,21 +1417,42 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* ══════════ MODAL 2: BUY DIGITAL GOLD ══════════ */}
+      {/* ══════════ MODAL 2: BUY / SELL DIGITAL GOLD ══════════ */}
       <AnimatePresence>
         {showBuyModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowBuyModal(false)} className="absolute inset-0 bg-primary/80 backdrop-blur-md" />
-            <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }} transition={{ duration: 0.2 }} className="glass-card border-white/10 w-full max-w-md p-8 rounded-3xl relative z-10 text-left flex flex-col gap-6">
-              <button onClick={() => setShowBuyModal(false)} className="absolute top-6 right-6 text-muted hover:text-white transition-colors">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => { setShowBuyModal(false); setSellError(''); }} className="absolute inset-0 bg-primary/80 backdrop-blur-md" />
+            <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }} transition={{ duration: 0.2 }} className="glass-card border-white/10 w-full max-w-md p-8 rounded-3xl relative z-10 text-left flex flex-col gap-5">
+              <button onClick={() => { setShowBuyModal(false); setSellError(''); }} className="absolute top-6 right-6 text-muted hover:text-white transition-colors">
                 <X className="w-5 h-5" />
               </button>
+
+              {/* Buy / Sell Toggle */}
+              <div className="flex rounded-xl overflow-hidden border border-white/10 bg-white/5">
+                <button
+                  onClick={() => { setIsSellMode(false); setSellError(''); setBuyAmount('500'); }}
+                  className={`flex-1 py-2.5 text-xs font-bold transition-colors ${ !isSellMode ? 'bg-accentGold text-primary' : 'text-muted hover:text-white' }`}
+                >
+                  Buy Gold
+                </button>
+                <button
+                  onClick={() => { setIsSellMode(true); setSellError(''); setBuyAmount(''); }}
+                  className={`flex-1 py-2.5 text-xs font-bold transition-colors ${ isSellMode ? 'bg-red-500 text-white' : 'text-muted hover:text-white' }`}
+                >
+                  Sell Gold
+                </button>
+              </div>
+
               <div className="flex flex-col gap-1">
                 <h3 className="text-xl font-bold flex items-center gap-2">
-                  <Coins className="w-5 h-5 text-accentGold" />
-                  Buy Digital Gold
+                  <Coins className={`w-5 h-5 ${isSellMode ? 'text-red-400' : 'text-accentGold'}`} />
+                  {isSellMode ? 'Sell Digital Gold' : 'Buy Digital Gold'}
                 </h3>
-                <p className="text-muted text-xs">Accumulate 24K pure physical gold assets in your safe vault.</p>
+                <p className="text-muted text-xs">
+                  {isSellMode
+                    ? `Your balance: ${totalGoldOwned.toFixed(4)}g worth \u20b9${(totalGoldOwned * (goldPrice ?? 0)).toLocaleString('en-IN', {maximumFractionDigits: 0})}`
+                    : 'Accumulate 24K pure physical gold assets in your safe vault.'}
+                </p>
               </div>
 
               {/* Live Price Banner */}
@@ -1392,36 +1465,41 @@ export default function App() {
                     <span className="text-xl font-black text-white">{goldPriceDisplay} <small className="text-xs text-muted font-normal">/gram</small></span>
                   )}
                 </div>
-                <div className="flex flex-col items-end gap-1">
-                  <div className="bg-green-500/10 border border-green-500/20 py-1 px-3 rounded-lg text-[10px] font-bold text-green-400">
-                    Live Rate
-                  </div>
-                </div>
+                <div className="bg-green-500/10 border border-green-500/20 py-1 px-3 rounded-lg text-[10px] font-bold text-green-400">Live Rate</div>
               </div>
 
               <div className="flex flex-col gap-4">
-                {/* Amount input with quick-select */}
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-[10px] text-muted font-bold uppercase tracking-wider">Investment Amount (₹)</label>
+                  <label className="text-[10px] text-muted font-bold uppercase tracking-wider">
+                    {isSellMode ? 'Sell Amount (₹)' : 'Investment Amount (₹)'}
+                  </label>
                   <div className="relative">
                     <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-semibold">₹</span>
-                    <input type="number" required placeholder="Enter amount" value={buyAmount} onChange={(e) => setBuyAmount(e.target.value)} className="w-full bg-white/5 border border-white/10 focus:border-accentGold/30 focus:outline-none rounded-xl py-3.5 pl-8 pr-4 text-sm font-bold text-white placeholder-gray-500" />
+                    <input
+                      type="number"
+                      required
+                      placeholder={isSellMode ? 'Enter amount to redeem' : 'Enter amount'}
+                      value={buyAmount}
+                      onChange={(e) => { setBuyAmount(e.target.value); setSellError(''); }}
+                      className="w-full bg-white/5 border border-white/10 focus:border-accentGold/30 focus:outline-none rounded-xl py-3.5 pl-8 pr-4 text-sm font-bold text-white placeholder-gray-500"
+                    />
                   </div>
-                  {/* Quick amounts */}
-                  <div className="flex gap-2 mt-1">
-                    {[100, 500, 1000, 5000].map(amt => (
-                      <button key={amt} onClick={() => setBuyAmount(String(amt))} className={`flex-1 text-[10px] font-bold py-1.5 rounded-lg border transition-colors ${buyAmount === String(amt) ? 'border-accentGold/40 text-accentGold bg-accentGold/10' : 'border-white/10 text-muted hover:border-white/20 hover:text-white'}`}>
-                        ₹{amt >= 1000 ? `${amt / 1000}K` : amt}
-                      </button>
-                    ))}
-                  </div>
+                  {!isSellMode && (
+                    <div className="flex gap-2 mt-1">
+                      {[100, 500, 1000, 5000].map(amt => (
+                        <button key={amt} onClick={() => setBuyAmount(String(amt))} className={`flex-1 text-[10px] font-bold py-1.5 rounded-lg border transition-colors ${buyAmount === String(amt) ? 'border-accentGold/40 text-accentGold bg-accentGold/10' : 'border-white/10 text-muted hover:border-white/20 hover:text-white'}`}>
+                          ₹{amt >= 1000 ? `${amt / 1000}K` : amt}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
-                {/* Quantity Summary */}
+                {/* Summary */}
                 <div className="bg-white/[0.02] border border-white/5 rounded-xl p-4 flex flex-col gap-2">
                   <div className="flex justify-between text-xs">
-                    <span className="text-muted">Estimated gold to receive:</span>
-                    <span className="font-black text-accentLightGold text-sm">{estimatedGrams} grams</span>
+                    <span className="text-muted">{isSellMode ? 'Gold to be sold:' : 'Estimated gold to receive:'}</span>
+                    <span className={`font-black text-sm ${isSellMode ? 'text-red-400' : 'text-accentLightGold'}`}>{estimatedGrams} grams</span>
                   </div>
                   <div className="flex justify-between text-xs">
                     <span className="text-muted">Gold purity:</span>
@@ -1432,14 +1510,30 @@ export default function App() {
                     <span className="font-semibold text-green-400">₹0 (Free)</span>
                   </div>
                   <div className="border-t border-white/5 pt-2 flex justify-between text-xs">
-                    <span className="text-muted font-semibold">Total payable:</span>
+                    <span className="text-muted font-semibold">{isSellMode ? 'Amount to receive:' : 'Total payable:'}</span>
                     <span className="font-black text-white">₹{(parseFloat(buyAmount) || 0).toLocaleString('en-IN')}</span>
                   </div>
                 </div>
 
-                <button onClick={handlePurchase} disabled={buyLoading || !buyAmount || parseFloat(buyAmount) <= 0} className="w-full bg-gradient-to-r from-accentGold to-accentLightGold text-primary font-bold py-3.5 rounded-xl transition-all shadow-lg shadow-accentGold/10 hover:shadow-accentGold/20 flex items-center justify-center gap-2 disabled:opacity-50 hover:scale-[1.01] active:scale-[0.99]">
+                {sellError && (
+                  <div className="bg-red-500/10 border border-red-500/20 rounded-xl py-2.5 px-4 text-xs text-red-400 font-semibold">
+                    {sellError}
+                  </div>
+                )}
+
+                <button
+                  onClick={isSellMode ? handleSell : handlePurchase}
+                  disabled={buyLoading || !buyAmount || parseFloat(buyAmount) <= 0}
+                  className={`w-full font-bold py-3.5 rounded-xl transition-all shadow-lg flex items-center justify-center gap-2 disabled:opacity-50 hover:scale-[1.01] active:scale-[0.99] ${
+                    isSellMode
+                      ? 'bg-gradient-to-r from-red-500 to-red-400 text-white shadow-red-500/10 hover:shadow-red-500/20'
+                      : 'bg-gradient-to-r from-accentGold to-accentLightGold text-primary shadow-accentGold/10 hover:shadow-accentGold/20'
+                  }`}
+                >
                   {buyLoading && <Loader2 className="w-4 h-4 animate-spin" />}
-                  {buyLoading ? "Authorizing Payment..." : "Confirm Purchase"}
+                  {buyLoading
+                    ? (isSellMode ? 'Processing Sale...' : 'Authorizing Payment...')
+                    : (isSellMode ? 'Confirm Sale' : 'Confirm Purchase')}
                 </button>
               </div>
             </motion.div>
@@ -1470,8 +1564,8 @@ export default function App() {
               </motion.div>
 
               <div className="flex flex-col gap-1.5">
-                <h3 className="text-2xl font-black text-white">🎉 Congratulations!</h3>
-                <p className="text-muted text-xs">Your gold has been added to your digital vault.</p>
+                <h3 className="text-2xl font-black text-white">{latestTxn.isSell ? '💰 Sale Successful!' : '🎉 Congratulations!'}</h3>
+                <p className="text-muted text-xs">{latestTxn.isSell ? 'Your gold has been sold. Proceeds credited to your account.' : 'Your gold has been added to your digital vault.'}</p>
               </div>
 
               {/* Transaction Receipt */}
