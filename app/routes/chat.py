@@ -8,7 +8,7 @@ from ..services.gemini_service import process_chat_query
 router = APIRouter()
 
 @router.post("/chat", response_model=schemas.ChatResponse)
-async def chat_endpoint(request: schemas.ChatRequest, db: Session = Depends(get_db)):
+def chat_endpoint(request: schemas.ChatRequest, db: Session = Depends(get_db)):
     # Verify user exists
     user = db.query(models.User).filter(models.User.id == request.user_id).first()
     if not user:
